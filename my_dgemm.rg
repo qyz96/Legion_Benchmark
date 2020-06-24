@@ -27,25 +27,13 @@ extern void dgemm_(char* transa, char* transb, int* m, int* n, int* k, double* a
                    double* A, int* lda, double* B, int* ldb, double* beta,
                    double* C, int* ldc);
 
-extern void dpotrf_(char *uplo, int *n, double *A, int *lda, int *info);
-
-extern void dtrsm_(char* side, char *uplo, char* transa, char* diag,
-                   int* m, int* n, double* alpha,
-                   double *A, int *lda, double *B, int *ldb);
-
-extern void dsyrk_(char *uplo, char* trans, int* n, int* k,
-                   double* alpha, double *A, int *lda,
-                   double* beta, double *C, int *ldc);
-
 ]]
 
 if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("libblas.dylib")
   terralib.linklibrary("liblapack.dylib")
 else
---  terralib.linklibrary("libblas.so")
---  terralib.linklibrary("liblapack.so")
-  terralib.linklibrary("/home/darve/adncat/legion/language/myblas.so")
+  terralib.linklibrary("myblas.so")
 end
 
 local c = regentlib.c
@@ -117,85 +105,6 @@ terra get_raw_ptr(y : int, x : int, bn : int,
   rect.hi.x[1] = (x + 1) * bn - 1
   var ptr = c.legion_accessor_array_2d_raw_rect_ptr(fa, rect, &subrect, offsets)
   return raw_ptr { ptr = [&double](ptr), offset = offsets[1].offset / sizeof(double) }
-end
-
-terra dpotrf_terra(x : int, n : int, bn : int,
-                   pr : c.legion_physical_region_t,
-                   fld : c.legion_field_id_t)
-  var uplo : rawstring = 'L'
-  var n_ : int[1], bn_ : int[1]
-  n_[0], bn_[0] = n, bn
-  var info : int[1]
-
-  var rawA = get_raw_ptr(x, x, bn, pr, fld)
-
-  blas.dpotrf_(uplo, bn_, rawA.ptr, &(rawA.offset), info)
-end
-
-task dpotrf(x : int, n : int, bn : int, rA : region(ispace(f2d), double))
-where reads writes(rA)
-do
-  dpotrf_terra(x, n, bn, __physical(rA)[0], __fields(rA)[0])
-end
-
-terra dtrsm_terra(x : int, y : int, n : int, bn : int,
-                  prA : c.legion_physical_region_t,
-                  fldA : c.legion_field_id_t,
-                  prB : c.legion_physical_region_t,
-                  fldB : c.legion_field_id_t)
-
-  var side : rawstring = 'R'
-  var uplo : rawstring = 'L'
-  var transa : rawstring = 'T'
-  var diag : rawstring = 'N'
-  var n_ : int[1], bn_ : int[1]
-  n_[0], bn_[0] = n, bn
-  var alpha : double[1] = array(1.0)
-
-  var rawA = get_raw_ptr(y, x, bn, prA, fldA)
-  var rawB = get_raw_ptr(x, x, bn, prB, fldB)
-
-  blas.dtrsm_(side, uplo, transa, diag, bn_, bn_, alpha,
-              rawB.ptr, &(rawB.offset), rawA.ptr, &(rawA.offset))
-end
-
-task dtrsm(x : int, y : int, n : int, bn : int,
-           rA : region(ispace(f2d), double),
-           rB : region(ispace(f2d), double))
-where reads writes(rA), reads(rB)
-do
-  dtrsm_terra(x, y, n, bn, __physical(rA)[0], __fields(rA)[0],
-              __physical(rB)[0], __fields(rB)[0])
-end
-
-terra dsyrk_terra(x : int, k : int, n : int, bn : int,
-                  prA : c.legion_physical_region_t,
-                  fldA : c.legion_field_id_t,
-                  prB : c.legion_physical_region_t,
-                  fldB : c.legion_field_id_t)
-
-  var uplo : rawstring = 'L'
-  var trans : rawstring = 'N'
-  var n_ : int[1], bn_ : int[1]
-  n_[0], bn_[0] = n, bn
-  var alpha : double[1] = array(-1.0)
-  var beta : double[1] = array(1.0)
-
-  var rawA = get_raw_ptr(k, k, bn, prA, fldA)
-  var rawB = get_raw_ptr(k, x, bn, prB, fldB)
-
-  blas.dsyrk_(uplo, trans, bn_, bn_,
-              alpha, rawB.ptr, &(rawB.offset),
-              beta, rawA.ptr, &(rawA.offset))
-end
-
-task dsyrk(x : int, k : int, n : int, bn : int,
-           rA : region(ispace(f2d), double),
-           rB : region(ispace(f2d), double))
-where reads writes(rA), reads(rB)
-do
-  dsyrk_terra(x, k, n, bn, __physical(rA)[0], __fields(rA)[0],
-              __physical(rB)[0], __fields(rB)[0])
 end
 
 terra dgemm_terra(x : int, y : int, k : int,
