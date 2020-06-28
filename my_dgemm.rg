@@ -72,15 +72,6 @@ do
   end
 end
 
-
-task transpose_copy(rSrc : region(ispace(f2d), double), rDst : region(ispace(f2d), double))
-where reads(rSrc), writes(rDst)
-do
-  for p in rSrc.ispace do
-    rDst[f2d { y = p.x, x = p.y }] = rSrc[p]
-  end
-end
-
 function raw_ptr_factory(ty)
   local struct raw_ptr
   {
@@ -123,9 +114,9 @@ terra dgemm_terra(x : int, y : int, k : int,
   var alpha : double[1] = array(1.0)
   var beta : double[1] = array(1.0)
 
-  var rawA = get_raw_ptr(y, k, bn, prA, fldA)
-  var rawB = get_raw_ptr(y, x, bn, prB, fldB)
-  var rawC = get_raw_ptr(k, x, bn, prC, fldC)
+  var rawA = get_raw_ptr(x, y, bn, prA, fldA)
+  var rawB = get_raw_ptr(x, k, bn, prB, fldB)
+  var rawC = get_raw_ptr(k, y, bn, prC, fldC)
 
   blas.dgemm_(transa, transb, bn_, bn_, bn_,
               alpha, rawB.ptr, &(rawB.offset),
@@ -172,41 +163,36 @@ task my_gemm(n : int, np : int, verify : bool)
   var rB = region(is, double)
   var rC = region(is, double)
   var rD = region(is, double)
-
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
-
-
   for x=0, np do
     for y=0, np do
-      make_zero_matrix(f2d{x=x,y=y},pC[f2d{x=x,y=y}])
-      make_random_matrix(f2d{x=x,y=y}, pA[f2d{x=x,y=y}])
+      make_zero_matrix(f2d{x=x,y=y},pA[f2d{x=x,y=y}])
       make_random_matrix(f2d{x=x,y=y}, pB[f2d{x=x,y=y}])
+      make_random_matrix(f2d{x=x,y=y}, pC[f2d{x=x,y=y}])
     end
   end
-
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
-
   var bn = n / np
   for k = 0, np do
     for x = 0, np do
       __demand(__index_launch)
       for y = 0, np do
         dgemm(x, y, k, n, bn,
-              pC[f2d { x = x, y = y }],
-              pA[f2d { x = x, y = k }],
-              pB[f2d { x = k, y = y }])
+              pA[f2d { x = x, y = y }],
+              pB[f2d { x = x, y = k }],
+              pC[f2d { x = k, y = y }])
       end
     end
-  end  
+  end    
   __fence(__execution, __block)
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
 --  dgemm(0,0,0,n,n,rD,rA,rB)
-  if verify then dgemm(0,0,0,n,n,rD, rA, rB) end
-  if verify then verify_result(n, rD, rC) end
+  if verify then dgemm(0,0,0,n,n,rD, rB, rC) end
+  if verify then verify_result(n, rD, rA) end
 end
 
 task toplevel()
