@@ -47,15 +47,6 @@ rawset(_G, "srand48", std.srand48)
 local struct __f2d { y : int, x : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
 
-task make_pds_matrix(p : f2d, n : int, rA : region(ispace(f2d), double))
-where reads writes(rA)
-do
-  var is = rA.ispace
-  for p in rA.ispace do
-    rA[p] = [int](drand48())
-  end
-end
-
 task make_random_matrix(p : f2d, rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
@@ -152,6 +143,7 @@ do
       end
     end
   end
+  c.printf("Verification OK\n")
 end
 
 task my_gemm(n : int, np : int, verify : bool)
@@ -175,16 +167,15 @@ task my_gemm(n : int, np : int, verify : bool)
   end
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
+  var launch_domain = rect2d { int2d {0, 0}, int2d {np - 1, np - 1} }
   var bn = n / np
   for k = 0, np do
-    for x = 0, np do
-      __demand(__index_launch)
-      for y = 0, np do
-        dgemm(x, y, k, n, bn,
-              pA[f2d { x = x, y = y }],
-              pB[f2d { x = x, y = k }],
-              pC[f2d { x = k, y = y }])
-      end
+    __demand(__index_launch)
+    for p in launch_domain do
+       dgemm(p.x, p.y, k, n, bn,
+            pA[f2d { x = p.x, y = p.y }],
+            pB[f2d { x = p.x, y = k   }],
+            pC[f2d { x = k,   y = p.y }])
     end
   end    
   __fence(__execution, __block)
