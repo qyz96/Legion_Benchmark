@@ -11,7 +11,7 @@ mpirun -n ${SLURM_NTASKS} hostname
 
 let MATRIX_SIZE=BLOCK_SIZE*NUM_BLOCKS
 export LD_LIBRARY_PATH="$(pwd):$LD_LIBRARY_PATH"
-GASNET_BACKTRACE=1
+export GASNET_BACKTRACE=1
 
 echo ">>>>slurm_id=${SLURM_JOB_ID},matrix_size=${MATRIX_SIZE},num_blocks=${NUM_BLOCKS},block_size=${BLOCK_SIZE},num_ranks=${SLURM_NTASKS},num_cpus=${NUM_CPUS}"
 
