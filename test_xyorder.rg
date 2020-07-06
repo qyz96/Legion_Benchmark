@@ -13,7 +13,8 @@
 
 import "regent"
 local c = regentlib.c
-
+local cstr = terralib.includec("string.h")
+local std = terralib.includec("stdlib.h")
 -- declare fortran-order 2D indexspace
 local struct __f2d { y : int, x : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
@@ -59,16 +60,14 @@ task my_gemm(n : int, np : int)
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
   var bn = n / np
-  for k = 0, np do
-    for x = 0, np do
-      for y = 0, np do
-        dgemm(x, y, k, n, bn,
+  for x = 0, np do
+    for y = 0, np do
+      dgemm(x, y, 0, n, bn,
               pA[f2d { x = x, y = y }],
-              pB[f2d { x = x, y = k }],
-              pC[f2d { x = k, y = y }])
-      end
+              pB[f2d { x = x, y = 0 }],
+              pC[f2d { x = 0, y = y }])
     end
-  end    
+  end
   __fence(__execution, __block)
 
 end
@@ -76,6 +75,15 @@ end
 task toplevel()
   var n = 8192
   var np = 16
+  var args = c.legion_runtime_get_input_args()
+  for i = 0, args.argc do
+    if cstr.strcmp(args.argv[i], "-n") == 0 then
+      n = std.atoi(args.argv[i + 1])
+    elseif cstr.strcmp(args.argv[i], "-p") == 0 then
+      np = std.atoi(args.argv[i + 1])
+    end
+  end
+
 
   my_gemm(n, np)
 end
