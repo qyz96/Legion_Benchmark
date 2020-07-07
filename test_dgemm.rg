@@ -33,7 +33,9 @@ if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("libblas.dylib")
   terralib.linklibrary("liblapack.dylib")
 else
-  terralib.linklibrary("myblas.so")
+--  terralib.linklibrary("myblas.so")
+  terralib.linklibrary("libblas.so") 
+  terralib.linklibrary("liblapack.so")
 end
 
 local c = regentlib.c
@@ -56,11 +58,14 @@ do
   end
 end
 
-task make_random_matrix(p : f2d, rA : region(ispace(f2d), double))
+task make_random_matrix(rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
   for p in rA.ispace do
+    var xx : double = [double](p.x)
+    var yy : double = [double](p.y)
     rA[p] = [int](drand48())
+--    c.printf("rA(%d,%d): %3.f\n", p.x, p.y, rA[p])
   end
 end
 
@@ -124,17 +129,25 @@ terra dgemm_terra(x : int, y : int, k : int,
               beta, rawA.ptr, &(rawA.offset))
 end
 
-
+task my_dgemm(bn:int, rA : region(ispace(f2d), double),
+           rB : region(ispace(f2d), double),
+           rC : region(ispace(f2d), double))
+where reads writes(rA), reads(rB, rC)
+do
+  for p in rA.ispace do
+    for k = 0, bn do
+      rA[p] = rA[p] + rB[f2d{x=p.x,y=k}] * rC[f2d{x=k, y=p.y}] 
+    end
+--    c.printf("rA(%d, %d) : %.3f\n", p.x, p.y, rB[p])
+  end
+end
 task dgemm(x : int, y : int, k : int, n : int, bn : int,
            rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
            rC : region(ispace(f2d), double))
 where reads writes(rA), reads(rB, rC)
 do
-  dgemm_terra(x, y, k, n, bn,
-              __physical(rA)[0], __fields(rA)[0],
-              __physical(rB)[0], __fields(rB)[0],
-              __physical(rC)[0], __fields(rC)[0])
+  dgemm_terra(x, y, k, n, bn,__physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
 
 task verify_result(n : int,
@@ -147,7 +160,7 @@ do
     for y = 0, n do
       var v = res[f2d { x = x, y = y }]
       var sum = org[f2d{x=x,y=y}]
-      if cmath.fabs(sum - v) > 1e-6 then
+      if cmath.fabs(sum - v) > 1e-14 then
         c.printf("error at (%d, %d) : %.3f, %.3f\n", y, x, sum, v)
       end
     end
@@ -167,19 +180,13 @@ task my_gemm(n : int, np : int, verify : bool)
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
-
-  for x=0, np do
-    for y=0, np do
-      make_zero_matrix(f2d{x=x,y=y},pA[f2d{x=x,y=y}])
-      make_random_matrix(f2d{x=x,y=y}, pB[f2d{x=x,y=y}])
-      make_random_matrix(f2d{x=x,y=y}, pC[f2d{x=x,y=y}])
-    end
-  end
+  var launch_domain = rect2d { int2d {0, 0}, int2d {np - 1, np - 1} }
+  make_random_matrix(rB)
+  make_random_matrix(rC)
 
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
   var bn = n / np
-  var launch_domain = rect2d { int2d {0, 0}, int2d {np - 1, np - 1} }
   for k = 0, np do
     __demand(__index_launch)
     for p in launch_domain do
@@ -194,7 +201,7 @@ task my_gemm(n : int, np : int, verify : bool)
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
 --  dgemm(0,0,0,n,n,rD,rA,rB)
-  if verify then dgemm(0,0,0,n,n,rD, rB, rC) end
+  if verify then my_dgemm(n,rD, rB, rC) end
   if verify then verify_result(n, rD, rA) end
 end
 
