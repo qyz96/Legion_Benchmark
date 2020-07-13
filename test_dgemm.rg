@@ -33,9 +33,9 @@ if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("libblas.dylib")
   terralib.linklibrary("liblapack.dylib")
 else
---  terralib.linklibrary("myblas.so")
-  terralib.linklibrary("libblas.so") 
-  terralib.linklibrary("liblapack.so")
+  terralib.linklibrary("libopenblas.so")
+--  terralib.linklibrary("libblas.so") 
+--  terralib.linklibrary("liblapack.so")
 end
 
 local c = regentlib.c
@@ -64,7 +64,7 @@ do
   for p in rA.ispace do
     var xx : double = [double](p.x)
     var yy : double = [double](p.y)
-    rA[p] = [int](drand48())
+    rA[p] = 0
 --    c.printf("rA(%d,%d): %3.f\n", p.x, p.y, rA[p])
   end
 end
@@ -129,14 +129,23 @@ terra dgemm_terra(x : int, y : int, k : int,
               beta, rawA.ptr, &(rawA.offset))
 end
 
-task my_dgemm(bn:int, rA : region(ispace(f2d), double),
+task print(rA : region(ispace(f2d),double))
+where reads writes(rA)
+do 
+  for p in rA.ispace do
+    c.printf("rA(%d, %d), %.3f\n", p.x, p.y, rA[p])
+  end
+end
+
+
+task my_dgemm(x : int, y : int, k : int, n : int, bn : int, rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
            rC : region(ispace(f2d), double))
 where reads writes(rA), reads(rB, rC)
 do
   for p in rA.ispace do
-    for k = 0, bn do
-      rA[p] = rA[p] + rB[f2d{x=p.x,y=k}] * rC[f2d{x=k, y=p.y}] 
+    for kk = 0, bn do
+      rA[p] = rA[p] + rB[f2d{x=p.x,y=k+kk}] * rC[f2d{x=k+kk, y=p.y}] 
     end
 --    c.printf("rA(%d, %d) : %.3f\n", p.x, p.y, rB[p])
   end
@@ -160,6 +169,7 @@ do
     for y = 0, n do
       var v = res[f2d { x = x, y = y }]
       var sum = org[f2d{x=x,y=y}]
+      c.printf("error at (%d, %d) : %.3f, %.3f\n", y, x, sum, v)
       if cmath.fabs(sum - v) > 1e-14 then
         c.printf("error at (%d, %d) : %.3f, %.3f\n", y, x, sum, v)
       end
@@ -183,14 +193,13 @@ task my_gemm(n : int, np : int, verify : bool)
   var launch_domain = rect2d { int2d {0, 0}, int2d {np - 1, np - 1} }
   make_random_matrix(rB)
   make_random_matrix(rC)
-
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
   var bn = n / np
   for k = 0, np do
     __demand(__index_launch)
     for p in launch_domain do
-      dgemm(p.x, p.y, k, n, bn,
+      my_dgemm(p.x, p.y, k, n, bn,
             pA[f2d { x = p.x, y = p.y }],
             pB[f2d { x = p.x, y = k }],
             pC[f2d { x = k, y = p.y }])
@@ -201,7 +210,7 @@ task my_gemm(n : int, np : int, verify : bool)
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
 --  dgemm(0,0,0,n,n,rD,rA,rB)
-  if verify then my_dgemm(n,rD, rB, rC) end
+  if verify then my_dgemm(0,0,0, 1, n,rD, rB, rC) end
   if verify then verify_result(n, rD, rA) end
 end
 
