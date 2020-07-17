@@ -57,7 +57,7 @@ do
   end
 end
 
-task make_zero_matrix(p : f2d, rA : region(ispace(f2d), double))
+task make_zero_matrix(rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
   for p in rA.ispace do
