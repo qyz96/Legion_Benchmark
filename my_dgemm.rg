@@ -19,7 +19,6 @@
 -- ]
 
 import "regent"
-local utils = require("utils") 
 
 local blas = terralib.includecstring [[
 extern void dgemm_(char* transa, char* transb, int* m, int* n, int* k, double* alpha,
@@ -47,6 +46,33 @@ local std = terralib.includec("stdlib.h")
 -- declare fortran-order 2D indexspace
 local struct __f2d { i : int, j : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
+
+task make_easy_matrix(rA : region(ispace(f2d), double))
+where reads writes(rA)
+do
+  for p in rA.ispace do
+    rA[p] = [double](p.j)
+  end
+end
+
+task verify_easy_matrix(matrix_size : int,
+                        computed    : region(ispace(f2d), double))
+where reads(computed)
+do
+  c.printf("Verifying results...\n")
+  var k = 0
+  for i = 0, matrix_size do
+    for j = 0, matrix_size do
+      var cpt = computed[f2d{i=i,j=j}]
+      var ref = j * (matrix_size*(matrix_size-1)/2)
+      if cmath.fabs(cpt - ref) > 0.0 then
+        c.printf("error at (%d, %d) : cpt = %.3f, ref = %.3f\n", i, j, cpt, ref)
+      end
+      k = k+1
+    end
+  end
+  c.printf("Verified %d entires\n", k)
+end
 
 task make_random_matrix(rA : region(ispace(f2d), double))
 where reads writes(rA)
@@ -120,7 +146,6 @@ terra dgemm_terra(i : int, j : int, k : int,
               beta, rawC.ptr, &(rawC.offset))
 end
 
-
 task dgemm(i : int, j : int, k : int, matrix_size : int, block_size : int,
            rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
@@ -128,6 +153,20 @@ task dgemm(i : int, j : int, k : int, matrix_size : int, block_size : int,
 where reads writes(rC), reads(rA, rB)
 do
   dgemm_terra(i, j, k, matrix_size, block_size, __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
+end
+
+task dgemm_verify(matrix_size : int,
+                  rA : region(ispace(f2d), double),
+                  rB : region(ispace(f2d), double),
+                  rC : region(ispace(f2d), double))
+where reads writes(rC), reads(rA, rB)
+do
+  for p in rC.ispace do
+    rC[p] = 0.0
+    for k = 0, matrix_size do
+      rC[p] = rC[p] + rA[f2d{i=p.i,j=k}] * rB[f2d{i=k, j=p.j}]
+    end
+  end
 end
 
 task verify_result(matrix_size : int,
@@ -163,13 +202,11 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
-  for i = 0, num_blocks do
-    for j = 0, num_blocks do
-      make_random_matrix(pA[f2d{i=i,j=j}])
-      make_random_matrix(pB[f2d{i=i,j=j}])
-      make_zero_matrix  (pC[f2d{i=i,j=j}])
-    end
-  end
+  make_random_matrix(rA)
+  make_random_matrix(rB)
+  -- make_easy_matrix(rA)
+  -- make_easy_matrix(rB)
+  make_zero_matrix(rC)
   -- C[i,j] = sum_k A[i,k] * B[k,j]
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
@@ -183,14 +220,16 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
               pC[f2d { i=i, j=j }])
       end
     end
-  end    
+  end
   __fence(__execution, __block)
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
   if verify then
     make_zero_matrix(rD)
-    dgemm(0, 0, 0, matrix_size, matrix_size, rA, rB, rD)
+    -- dgemm(0, 0, 0, matrix_size, matrix_size, rA, rB, rD)
+    dgemm_verify(matrix_size, rA, rB, rD)
     verify_result(matrix_size, rC, rD) 
+    -- verify_easy_matrix(matrix_size, rC)
   end
 end
 
