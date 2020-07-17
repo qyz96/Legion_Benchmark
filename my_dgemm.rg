@@ -46,14 +46,14 @@ rawset(_G, "drand48", std.drand48)
 rawset(_G, "srand48", std.srand48)
 
 -- declare fortran-order 2D indexspace
-local struct __f2d { i : int, j : int }
+local struct __f2d { j : int, i : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
 
 task make_random_matrix(rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
   for p in rA.ispace do
-    rA[p] = [int](10.0*drand48())
+    rA[p] = p.i*100+p.j
   end
 end
 
@@ -117,14 +117,14 @@ terra dgemm_terra(i : int, j : int, k : int,
               beta, rawA.ptr, &(rawA.offset))
 end
 
-task hand_dgemm(i : int, j : int, k : int, matrix_size : int, block_size : int, rA : region(ispace(f2d), double),
+task hand_dgemm(matrix_size : int, rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
            rC : region(ispace(f2d), double))
 where reads writes(rA), reads(rB, rC)
 do
   for p in rA.ispace do
-    for kk = 0, block_size do
-      rA[p] = rA[p] + rB[f2d{i=p.i,j=k+kk}] * rC[f2d{i=k+kk, j=p.j}] 
+    for k = 0, matrix_size do
+      rA[p] = rA[p] + rB[f2d{i=p.i,j=k}] * rC[f2d{i=k, j=p.j}] 
     end
   end
 end
@@ -167,8 +167,12 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
-  make_random_matrix(rB)
-  make_random_matrix(rC)
+  for p in cs do
+    make_zero_matrix(pA[p])       
+    make_zero_matrix(pD[p]) 
+    make_random_matrix(pB[p])
+    make_random_matrix(pC[p])
+  end
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
   var block_size = matrix_size / num_blocks
@@ -185,7 +189,7 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
 
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
-  if verify then hand_dgemm(0,0,0,1,matrix_size,rD,rB,rC) end
+  if verify then hand_dgemm(matrix_size,rD,rB,rC) end
   if verify then verify_result(matrix_size, rD, rA) end
 end
 
