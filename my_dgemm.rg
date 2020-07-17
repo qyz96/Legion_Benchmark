@@ -202,11 +202,15 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
-  make_random_matrix(rA)
-  make_random_matrix(rB)
-  -- make_easy_matrix(rA)
-  -- make_easy_matrix(rB)
-  make_zero_matrix(rC)
+  for i = 0, num_blocks do
+    for j = 0, num_blocks do
+      make_random_matrix(pA[f2d{i=i,j=j}])
+      make_random_matrix(pB[f2d{i=i,j=j}])
+      -- make_easy_matrix(pA[f2d{i=i,j=j}])
+      -- make_easy_matrix(pB[f2d{i=i,j=j}])
+      make_zero_matrix(pC[f2d{i=i,j=j}])
+    end
+  end
   -- C[i,j] = sum_k A[i,k] * B[k,j]
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
