@@ -33,7 +33,9 @@ if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("libblas.dylib")
   terralib.linklibrary("liblapack.dylib")
 else
-  terralib.linklibrary("myblas.so")
+  terralib.linklibrary("libmkl_core.so")
+  terralib.linklibrary("libmkl_sequential.so")
+  terralib.linklibrary("libmkl_intel_lp64.so")
 end
 
 local c = regentlib.c
@@ -59,7 +61,7 @@ task make_zero_matrix(p : f2d, rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
   for p in rA.ispace do
-    rA[p] = [int](0.0)
+    rA[p] = 0
   end
 end
 
