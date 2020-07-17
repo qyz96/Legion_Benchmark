@@ -202,6 +202,7 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
+  var launch_domain = rect2d { int2d {0, 0}, int2d {num_blocks - 1, num_blocks - 1} }
   for i = 0, num_blocks do
     for j = 0, num_blocks do
       make_random_matrix(pA[f2d{i=i,j=j}])
@@ -215,14 +216,12 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
   for k = 0, num_blocks do
-    for i = 0, num_blocks do
-      __demand(__index_launch)
-      for j = 0, num_blocks do
-        dgemm(i, j, k, matrix_size, block_size,
-              pA[f2d { i=i, j=k }],
-              pB[f2d { i=k, j=j }],
-              pC[f2d { i=i, j=j }])
-      end
+    __demand(__index_launch)
+    for p in launch_domain do
+      dgemm(p.x, p.y, k, matrix_size, block_size,
+        pA[f2d { i=p.x, j=k   }],
+        pB[f2d { i=k,   j=p.y }],
+        pC[f2d { i=p.x, j=p.y }])
     end
   end
   __fence(__execution, __block)

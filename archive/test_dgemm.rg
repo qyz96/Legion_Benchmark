@@ -33,22 +33,19 @@ if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("libblas.dylib")
   terralib.linklibrary("liblapack.dylib")
 else
-  terralib.linklibrary("libopenblas.so")
---  terralib.linklibrary("libblas.so") 
---  terralib.linklibrary("liblapack.so")
+--  terralib.linklibrary("libopenblas.so")
+  terralib.linklibrary("libblas.so") 
+  terralib.linklibrary("liblapack.so")
 end
-
 local c = regentlib.c
 local cstr = terralib.includec("string.h")
 local cmath = terralib.includec("math.h")
 local std = terralib.includec("stdlib.h")
 rawset(_G, "drand48", std.drand48)
 rawset(_G, "srand48", std.srand48)
-
 -- declare fortran-order 2D indexspace
 local struct __f2d { y : int, x : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
-
 task make_pds_matrix(p : f2d, n : int, rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
@@ -57,18 +54,16 @@ do
     rA[p] = [int](drand48())
   end
 end
-
 task make_random_matrix(rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
   for p in rA.ispace do
     var xx : double = [double](p.x)
     var yy : double = [double](p.y)
-    rA[p] = 0
+    rA[p] = 1+p.x+p.y
 --    c.printf("rA(%d,%d): %3.f\n", p.x, p.y, rA[p])
   end
 end
-
 task make_zero_matrix(p : f2d, rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
@@ -76,7 +71,6 @@ do
     rA[p] = [int](0.0)
   end
 end
-
 function raw_ptr_factory(ty)
   local struct raw_ptr
   {
@@ -85,9 +79,7 @@ function raw_ptr_factory(ty)
   }
   return raw_ptr
 end
-
 local raw_ptr = raw_ptr_factory(double)
-
 terra get_raw_ptr(y : int, x : int, bn : int,
                   pr : c.legion_physical_region_t,
                   fld : c.legion_field_id_t)
@@ -102,7 +94,6 @@ terra get_raw_ptr(y : int, x : int, bn : int,
   var ptr = c.legion_accessor_array_2d_raw_rect_ptr(fa, rect, &subrect, offsets)
   return raw_ptr { ptr = [&double](ptr), offset = offsets[1].offset / sizeof(double) }
 end
-
 terra dgemm_terra(x : int, y : int, k : int,
                   n : int, bn : int,
                   prA : c.legion_physical_region_t,
@@ -111,24 +102,20 @@ terra dgemm_terra(x : int, y : int, k : int,
                   fldB : c.legion_field_id_t,
                   prC : c.legion_physical_region_t,
                   fldC : c.legion_field_id_t)
-
   var transa : rawstring = 'N'
   var transb : rawstring = 'N'
   var n_ : int[1], bn_ : int[1]
   n_[0], bn_[0] = n, bn
   var alpha : double[1] = array(1.0)
   var beta : double[1] = array(1.0)
-
   var rawA = get_raw_ptr(x, y, bn, prA, fldA)
   var rawB = get_raw_ptr(x, k, bn, prB, fldB)
   var rawC = get_raw_ptr(k, y, bn, prC, fldC)
-
   blas.dgemm_(transa, transb, bn_, bn_, bn_,
               alpha, rawB.ptr, &(rawB.offset),
               rawC.ptr, &(rawC.offset),
               beta, rawA.ptr, &(rawA.offset))
 end
-
 task print(rA : region(ispace(f2d),double))
 where reads writes(rA)
 do 
@@ -136,8 +123,6 @@ do
     c.printf("rA(%d, %d), %.3f\n", p.x, p.y, rA[p])
   end
 end
-
-
 task my_dgemm(x : int, y : int, k : int, n : int, bn : int, rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
            rC : region(ispace(f2d), double))
@@ -158,7 +143,6 @@ where reads writes(rA), reads(rB, rC)
 do
   dgemm_terra(x, y, k, n, bn,__physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
-
 task verify_result(n : int,
                    org : region(ispace(f2d), double),
                    res : region(ispace(f2d), double))
@@ -176,17 +160,14 @@ do
     end
   end
 end
-
 task my_gemm(n : int, np : int, verify : bool)
   regentlib.assert(n % np == 0, "tile sizes should be uniform")
   var is = ispace(f2d, { x = n, y = n })
   var cs = ispace(f2d, { x = np, y = np })
-
   var rA = region(is, double)
   var rB = region(is, double)
   var rC = region(is, double)
   var rD = region(is, double)
-
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
@@ -199,26 +180,23 @@ task my_gemm(n : int, np : int, verify : bool)
   for k = 0, np do
     __demand(__index_launch)
     for p in launch_domain do
-      my_dgemm(p.x, p.y, k, n, bn,
+      dgemm(p.x, p.y, k, n, bn,
             pA[f2d { x = p.x, y = p.y }],
             pB[f2d { x = p.x, y = k }],
             pC[f2d { x = k, y = p.y }])
     end
   end
   __fence(__execution, __block)
-
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
 --  dgemm(0,0,0,n,n,rD,rA,rB)
   if verify then my_dgemm(0,0,0, 1, n,rD, rB, rC) end
   if verify then verify_result(n, rD, rA) end
 end
-
 task toplevel()
   var n = 8
   var np = 4
   var verify = false
-
   var args = c.legion_runtime_get_input_args()
   for i = 0, args.argc do
     if cstr.strcmp(args.argv[i], "-n") == 0 then
@@ -229,8 +207,6 @@ task toplevel()
       verify = true
     end
   end
-
   my_gemm(n, np, verify)
 end
-
 regentlib.start(toplevel)
