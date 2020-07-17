@@ -46,14 +46,14 @@ rawset(_G, "drand48", std.drand48)
 rawset(_G, "srand48", std.srand48)
 
 -- declare fortran-order 2D indexspace
-local struct __f2d { j : int, i : int }
+local struct __f2d { i : int, j : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
 
 task make_random_matrix(rA : region(ispace(f2d), double))
 where reads writes(rA)
 do
   for p in rA.ispace do
-    rA[p] = p.i*100+p.j
+    rA[p] = [int](drand48())
   end
 end
 
@@ -167,6 +167,7 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool)
   var pA = partition(equal, rA, cs)
   var pB = partition(equal, rB, cs)
   var pC = partition(equal, rC, cs)
+  var pD = partition(equal, rD, cs)
   for p in cs do
     make_zero_matrix(pA[p])       
     make_zero_matrix(pD[p]) 
