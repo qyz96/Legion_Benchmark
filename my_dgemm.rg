@@ -34,6 +34,8 @@ if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("liblapack.dylib")
 else
   terralib.linklibrary("myblas.so")
+--  terralib.linklibrary("libblas.so")
+--  terralib.linklibrary("liblapack.so")
 end
 
 local c = regentlib.c
@@ -131,10 +133,7 @@ task dgemm(x : int, y : int, k : int, n : int, bn : int,
            rC : region(ispace(f2d), double))
 where reads writes(rA), reads(rB, rC)
 do
-  dgemm_terra(x, y, k, n, bn,
-              __physical(rA)[0], __fields(rA)[0],
-              __physical(rB)[0], __fields(rB)[0],
-              __physical(rC)[0], __fields(rC)[0])
+  dgemm_terra(x, y, k, n, bn,__physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
 
 task verify_result(n : int,
