@@ -33,9 +33,9 @@ if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
   terralib.linklibrary("libblas.dylib")
   terralib.linklibrary("liblapack.dylib")
 else
-  terralib.linklibrary("libopenblas.so")
---  terralib.linklibrary("libblas.so") 
---  terralib.linklibrary("liblapack.so")
+--  terralib.linklibrary("libopenblas.so")
+  terralib.linklibrary("libblas.so") 
+  terralib.linklibrary("liblapack.so")
 end
 
 local c = regentlib.c
@@ -64,7 +64,7 @@ do
   for p in rA.ispace do
     var xx : double = [double](p.x)
     var yy : double = [double](p.y)
-    rA[p] = 0
+    rA[p] = 1+p.x+p.y
 --    c.printf("rA(%d,%d): %3.f\n", p.x, p.y, rA[p])
   end
 end
@@ -199,7 +199,7 @@ task my_gemm(n : int, np : int, verify : bool)
   for k = 0, np do
     __demand(__index_launch)
     for p in launch_domain do
-      my_dgemm(p.x, p.y, k, n, bn,
+      dgemm(p.x, p.y, k, n, bn,
             pA[f2d { x = p.x, y = p.y }],
             pB[f2d { x = p.x, y = k }],
             pC[f2d { x = k, y = p.y }])
