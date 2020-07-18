@@ -147,7 +147,6 @@ do
     for j = 0, matrix_size do
       var v = res[f2d { i = i, j = j }]
       var sum = org[f2d{i=i,j=j}]
-      c.printf("error %e at (%d, %d) : %.3f, %.3f\n", cmath.fabs(sum-v), i, j, sum, v)
       if cmath.fabs(sum - v) > 1e-17 then
         c.printf("error %e at (%d, %d) : %.3f, %.3f\n", cmath.fabs(sum-v), i, j, sum, v)
       end
