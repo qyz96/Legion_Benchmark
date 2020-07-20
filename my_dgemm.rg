@@ -20,29 +20,11 @@
 
 import "regent"
 
-local blas = terralib.includecstring [[
-extern void dgemm_(char* transa, char* transb, int* m, int* n, int* k, double* alpha,
-                   double* A, int* lda, double* B, int* ldb, double* beta,
-                   double* C, int* ldc);
-
-]]
-
-if os.execute("bash -c \"[ `uname` == 'Darwin' ]\"") == 0 then
-  terralib.linklibrary("libblas.dylib")
-  terralib.linklibrary("liblapack.dylib")
-else
-  terralib.linklibrary("libmkl_core.so")
-  terralib.linklibrary("libmkl_sequential.so")
-  terralib.linklibrary("libmkl_intel_lp64.so")
-end
-
 local c = regentlib.c
 local cstr = terralib.includec("string.h")
 local cmath = terralib.includec("math.h")
 local std = terralib.includec("stdlib.h")
 local common = require("common")
-rawset(_G, "drand48", std.drand48)
-rawset(_G, "srand48", std.srand48)
 
 -- declare fortran-order 2D indexspace
 local f2d = common.f2d
@@ -101,7 +83,7 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool, use_double : bo
   var ts_end = c.legion_get_current_time_in_micros()
   c.printf("ELAPSED TIME = %7.3f ms\n", 1e-3 * (ts_end - ts_start))
   if verify then hand_dgemm(0, matrix_size,rD,rB,rC) end
-  if verify then verify_result(matrix_size, rD, rA, use_double) end
+  if verify then verify_result_gemm(matrix_size, rD, rA, use_double) end
 end
 
 task toplevel()

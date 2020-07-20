@@ -17,6 +17,23 @@ else
   terralib.linklibrary("libmkl_intel_lp64.so")
 end
 
+local blas = terralib.includecstring [[
+extern void dgemm_(char* transa, char* transb, int* m, int* n, int* k, double* alpha,
+                   double* A, int* lda, double* B, int* ldb, double* beta,
+                   double* C, int* ldc);
+
+extern void dpotrf_(char *uplo, int *n, double *A, int *lda, int *info);
+
+extern void dtrsm_(char* side, char *uplo, char* transa, char* diag,
+                   int* m, int* n, double* alpha,
+                   double *A, int *lda, double *B, int *ldb);
+
+extern void dsyrk_(char *uplo, char* trans, int* n, int* k,
+                   double* alpha, double *A, int *lda,
+                   double* beta, double *C, int *ldc);
+
+]]
+
 local c = regentlib.c
 local cstr = terralib.includec("string.h")
 local cmath = terralib.includec("math.h")
@@ -55,6 +72,29 @@ function raw_ptr_factory(ty)
   return raw_ptr
 end
 
+task make_pds_matrix(p : f2d, matrix_size : int, rA : region(ispace(f2d), double))
+where reads writes(rA)
+do
+  var is = rA.ispace
+  for p in rA.ispace do
+    if p.j <= p.i then
+      rA[p] = [int](10.0 * drand48())
+      if p.j == p.i then
+        rA[p] += matrix_size * 10
+      end
+      rA[f2d { i = p.j, j = p.i }] = rA[p]
+    end
+  end
+end
+
+task transpose_copy(rSrc : region(ispace(f2d), double), rDst : region(ispace(f2d), double))
+where reads(rSrc), writes(rDst)
+do
+  for p in rSrc.ispace do
+    rDst[f2d { i = p.j, j = p.i }] = rSrc[p]
+  end
+end
+
 local raw_ptr = raw_ptr_factory(double)
 
 terra get_raw_ptr(i : int, j : int, matrix_size : int, block_size : int,
@@ -76,6 +116,92 @@ terra get_raw_ptr(i : int, j : int, matrix_size : int, block_size : int,
   return raw_ptr { ptr = [&double](ptr), offset = offsets[1].offset / sizeof(double) }
 end
 
+terra dpotrf_terra(j : int, matrix_size : int, block_size : int, val_A : double,
+                   pr : c.legion_physical_region_t,
+                   fld : c.legion_field_id_t)
+  var uplo : rawstring = 'L'
+  var matrix_size_ : int[1], block_size_ : int[1]
+  matrix_size_[0], block_size_[0] = matrix_size, block_size
+  var info : int[1]
+  var rawA = get_raw_ptr(j, j, matrix_size, block_size, pr, fld)
+  regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A in potrf!")
+  blas.dpotrf_(uplo, block_size_, rawA.ptr, &(rawA.offset), info)
+end
+
+task dpotrf(j : int, matrix_size : int, block_size : int, rA : region(ispace(f2d), double))
+where reads writes(rA)
+do
+  dpotrf_terra(j, matrix_size, block_size, rA[ f2d{ i = j * block_size, j = j * block_size }], __physical(rA)[0], __fields(rA)[0])
+end
+
+terra dtrsm_terra(j : int, i : int, matrix_size : int, block_size : int,
+                  val_A : double, val_B :double,
+                  prA : c.legion_physical_region_t,
+                  fldA : c.legion_field_id_t,
+                  prB : c.legion_physical_region_t,
+                  fldB : c.legion_field_id_t)
+
+  var side : rawstring = 'R'
+  var uplo : rawstring = 'L'
+  var transa : rawstring = 'T'
+  var diag : rawstring = 'N'
+  var matrix_size_ : int[1], block_size_ : int[1]
+  matrix_size_[0], block_size_[0] = matrix_size, block_size
+  var alpha : double[1] = array(1.0)
+  var rawA = get_raw_ptr(i, j, matrix_size, block_size, prA, fldA)
+  var rawB = get_raw_ptr(j, j, matrix_size, block_size, prB, fldB)
+  regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A in trsm!")
+  regentlib.assert(cmath.fabs(val_B - rawB.ptr[0]) == 0, "error reading matrix B in trsm!")
+  blas.dtrsm_(side, uplo, transa, diag, block_size_, block_size_, alpha,
+              rawB.ptr, &(rawB.offset), rawA.ptr, &(rawA.offset))
+end
+
+task dtrsm(j : int, i : int, matrix_size : int, block_size : int,
+           rA : region(ispace(f2d), double),
+           rB : region(ispace(f2d), double))
+where reads writes(rA), reads(rB)
+do
+  dtrsm_terra(j, i, matrix_size, block_size, 
+              rA[ f2d{ i = i * block_size, j = j * block_size }],
+              rB[ f2d{ i = j * block_size, j = j * block_size }],
+              __physical(rA)[0], __fields(rA)[0],
+              __physical(rB)[0], __fields(rB)[0])
+end
+
+terra dsyrk_terra(j : int, i : int, matrix_size : int, block_size : int,
+                  val_A : double, val_B : double,
+                  prA : c.legion_physical_region_t,
+                  fldA : c.legion_field_id_t,
+                  prB : c.legion_physical_region_t,
+                  fldB : c.legion_field_id_t)
+
+  var uplo : rawstring = 'L'
+  var trans : rawstring = 'N'
+  var matrix_size_ : int[1], block_size_ : int[1]
+  matrix_size_[0], block_size_[0] = matrix_size, block_size
+  var alpha : double[1] = array(-1.0)
+  var beta : double[1] = array(1.0)
+  var rawA = get_raw_ptr(i, i, matrix_size, block_size, prA, fldA)
+  var rawB = get_raw_ptr(i, j, matrix_size, block_size, prB, fldB)
+  regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A in syrk!")
+  regentlib.assert(cmath.fabs(val_B - rawB.ptr[0]) == 0, "error reading matrix B in syrk!")
+  blas.dsyrk_(uplo, trans, block_size_, block_size_,
+              alpha, rawB.ptr, &(rawB.offset),
+              beta, rawA.ptr, &(rawA.offset))
+end
+
+task dsyrk(j : int, i : int, matrix_size : int, block_size : int,
+           rA : region(ispace(f2d), double),
+           rB : region(ispace(f2d), double))
+where reads writes(rA), reads(rB)
+do
+  dsyrk_terra(j, i, matrix_size, block_size, 
+      rA[ f2d{ i = i * block_size, j = i * block_size }], 
+      rB[ f2d{ i = i * block_size, j = j * block_size }], 
+      __physical(rA)[0], __fields(rA)[0], __physical(rB)[0], __fields(rB)[0])
+end
+
+
 terra dgemm_terra(transa : bool, transb : bool, idx_a : int[2], idx_b : int[2], idx_c : int[2],
                   matrix_size : int, block_size : int,
                   alpha : double, beta :double,
@@ -89,21 +215,19 @@ terra dgemm_terra(transa : bool, transb : bool, idx_a : int[2], idx_b : int[2], 
   var transa_ : rawstring
   var transb_ : rawstring
   if transa then transa_='N'
-  else transa_= 'L' end
+  else transa_= 'T' end
   if transb then transb_='N'
-  else transb_ = 'L' end
+  else transb_ = 'T' end
   var matrix_size_ : int[1], block_size_ : int[1]
   matrix_size_[0], block_size_[0] = matrix_size, block_size
   var alpha_ : double[1] = array(alpha)
   var beta_ : double[1] = array(beta)
-
   var rawA = get_raw_ptr(idx_a[0], idx_a[1], matrix_size, block_size, prA, fldA)
   var rawB = get_raw_ptr(idx_b[0], idx_b[1], matrix_size, block_size, prB, fldB)
   var rawC = get_raw_ptr(idx_c[0], idx_c[1], matrix_size, block_size, prC, fldC)
-
-  regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A!")
-  regentlib.assert(cmath.fabs(val_B - rawB.ptr[0]) == 0, "error reading matrix B!")
-  regentlib.assert(cmath.fabs(val_C - rawC.ptr[0]) == 0, "error reading matrix C!")
+  regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A in gemm!")
+  regentlib.assert(cmath.fabs(val_B - rawB.ptr[0]) == 0, "error reading matrix B in gemm!")
+  regentlib.assert(cmath.fabs(val_C - rawC.ptr[0]) == 0, "error reading matrix C in gemm!")
   blas.dgemm_(transa_, transb_, block_size_, block_size_, block_size_,
               alpha_, rawB.ptr, &(rawB.offset),
               rawC.ptr, &(rawC.offset),
@@ -121,7 +245,7 @@ do
   dgemm_terra(transa, transb, idx_a, idx_b, idx_c, matrix_size, block_size, alpha, beta, rA[ f2d{ i = idx_a[0] * block_size, j = idx_a[1] * block_size }], rB[ f2d{ i = idx_b[0] * block_size, j = idx_b[1] * block_size }], rC[ f2d{ i = idx_c[0] * block_size, j = idx_c[1] * block_size }], __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
 
-task verify_result(matrix_size : int,
+task verify_result_gemm(matrix_size : int,
                    org : region(ispace(f2d), double),
                    res : region(ispace(f2d), double),
                    use_double : bool)
@@ -141,6 +265,21 @@ do
     end
   end
 end
+
+task verify_result_cholesky(matrix_size : int,
+                   org : region(ispace(f2d), double),
+                   res : region(ispace(f2d), double))
+where reads(org, res)
+do
+  c.printf("verifying results...\n")
+  for j = 0, matrix_size do
+    for i = j, matrix_size do
+      var v = org[f2d { i = i, j = j }]
+      var sum : double = 0
+      for k = 0, j + 1 do
+        sum += res[f2d { i = i, j = k }] * res[f2d { i = j, j = k }]
+      end
+      if cmath.fabs(sum - v) > 1e-6 then                                                                                                                                                                                  c.printf("error at (%d, %d) : %.3f, %.3f\n", i, j, sum, v)                                                                                                                                                      end                                                                                                                                                                                                             end                                                                                                                                                                                                             end                                                                                                                                                                                                             end
 
 
 return common
