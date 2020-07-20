@@ -87,7 +87,10 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool, use_double : bo
   for k = 0, num_blocks do
     __demand(__index_launch)
     for p in cs do
-      dgemm(p.i, p.j, k, matrix_size, block_size, 1.0, 1.0,
+      var idx_a : int[2] = array(p.i, p.j) 
+      var idx_b : int[2] = array(p.i, k)
+      var idx_c : int[2] = array(k, p.j)
+      dgemm(true, true, idx_a, idx_b, idx_c, matrix_size, block_size, 1.0, 1.0,
             pA[f2d { i = p.i, j = p.j }],
             pB[f2d { i = p.i, j = k }],
             pC[f2d { i = k, j = p.j }])

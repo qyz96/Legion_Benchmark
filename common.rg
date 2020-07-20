@@ -76,7 +76,7 @@ terra get_raw_ptr(i : int, j : int, matrix_size : int, block_size : int,
   return raw_ptr { ptr = [&double](ptr), offset = offsets[1].offset / sizeof(double) }
 end
 
-terra dgemm_terra(i : int, j : int, k : int,
+terra dgemm_terra(transa : bool, transb : bool, idx_a : int[2], idx_b : int[2], idx_c : int[2],
                   matrix_size : int, block_size : int,
                   alpha : double, beta :double,
                   val_A : double, val_B: double, val_C : double,
@@ -86,36 +86,39 @@ terra dgemm_terra(i : int, j : int, k : int,
                   fldB : c.legion_field_id_t,
                   prC : c.legion_physical_region_t,
                   fldC : c.legion_field_id_t)
-
-  var transa : rawstring = 'N'
-  var transb : rawstring = 'N'
+  var transa_ : rawstring
+  var transb_ : rawstring
+  if transa then transa_='N'
+  else transa_= 'L' end
+  if transb then transb_='N'
+  else transb_ = 'L' end
   var matrix_size_ : int[1], block_size_ : int[1]
   matrix_size_[0], block_size_[0] = matrix_size, block_size
   var alpha_ : double[1] = array(alpha)
   var beta_ : double[1] = array(beta)
 
-  var rawA = get_raw_ptr(i, j, matrix_size, block_size, prA, fldA)
-  var rawB = get_raw_ptr(i, k, matrix_size, block_size, prB, fldB)
-  var rawC = get_raw_ptr(k, j, matrix_size, block_size, prC, fldC)
+  var rawA = get_raw_ptr(idx_a[0], idx_a[1], matrix_size, block_size, prA, fldA)
+  var rawB = get_raw_ptr(idx_b[0], idx_b[1], matrix_size, block_size, prB, fldB)
+  var rawC = get_raw_ptr(idx_c[0], idx_c[1], matrix_size, block_size, prC, fldC)
 
   regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A!")
   regentlib.assert(cmath.fabs(val_B - rawB.ptr[0]) == 0, "error reading matrix B!")
   regentlib.assert(cmath.fabs(val_C - rawC.ptr[0]) == 0, "error reading matrix C!")
-  blas.dgemm_(transa, transb, block_size_, block_size_, block_size_,
+  blas.dgemm_(transa_, transb_, block_size_, block_size_, block_size_,
               alpha_, rawB.ptr, &(rawB.offset),
               rawC.ptr, &(rawC.offset),
               beta_, rawA.ptr, &(rawA.offset))
 
 end
 
-task dgemm(i : int, j : int, k : int, matrix_size : int, block_size : int,
+task dgemm(transa : bool, transb : bool, idx_a : int[2], idx_b : int[2], idx_c : int[2], matrix_size : int, block_size : int,
            alpha : double, beta : double,
            rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
            rC : region(ispace(f2d), double))
 where reads writes(rA), reads(rB, rC)
 do
-  dgemm_terra(i, j, k, matrix_size, block_size, alpha, beta, rA[ f2d{ i = i * block_size, j = j * block_size }], rB[ f2d{ i = i * block_size, j = k * block_size }], rC[ f2d{ i = k * block_size, j = j * block_size }], __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
+  dgemm_terra(transa, transb, idx_a, idx_b, idx_c, matrix_size, block_size, alpha, beta, rA[ f2d{ i = idx_a[0] * block_size, j = idx_a[1] * block_size }], rB[ f2d{ i = idx_b[0] * block_size, j = idx_b[1] * block_size }], rC[ f2d{ i = idx_c[0] * block_size, j = idx_c[1] * block_size }], __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
 
 task verify_result(matrix_size : int,
