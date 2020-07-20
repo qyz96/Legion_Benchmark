@@ -29,19 +29,6 @@ local common = require("common")
 -- declare fortran-order 2D indexspace
 local f2d = common.f2d
 
-
-task hand_dgemm(k : int, block_size : int, rA : region(ispace(f2d), double),
-           rB : region(ispace(f2d), double),
-           rC : region(ispace(f2d), double))
-where reads writes(rA), reads(rB, rC)
-do
-  for p in rA.ispace do
-    for kk = 0, block_size do    
-      rA[p] = rA[p] + rB[f2d{i=p.i,j=k*block_size+kk}] * rC[f2d{i=k*block_size+kk, j=p.j}]
-    end
-  end
-end
-
 task my_gemm(matrix_size : int, num_blocks : int, verify : bool, use_double : bool)
   regentlib.assert(matrix_size % num_blocks == 0, "tile sizes should be uniform")
   var is = ispace(f2d, { i = matrix_size, j = matrix_size })

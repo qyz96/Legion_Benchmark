@@ -245,6 +245,18 @@ do
   dgemm_terra(transa, transb, idx_a, idx_b, idx_c, matrix_size, block_size, alpha, beta, rA[ f2d{ i = idx_a[0] * block_size, j = idx_a[1] * block_size }], rB[ f2d{ i = idx_b[0] * block_size, j = idx_b[1] * block_size }], rC[ f2d{ i = idx_c[0] * block_size, j = idx_c[1] * block_size }], __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
 
+task hand_dgemm(k : int, block_size : int, rA : region(ispace(f2d), double),
+           rB : region(ispace(f2d), double),
+           rC : region(ispace(f2d), double))
+where reads writes(rA), reads(rB, rC)
+do
+  for p in rA.ispace do
+    for kk = 0, block_size do
+      rA[p] = rA[p] + rB[f2d{i=p.i,j=k*block_size+kk}] * rC[f2d{i=k*block_size+kk, j=p.j}]
+    end
+  end
+end
+
 task verify_result_gemm(matrix_size : int,
                    org : region(ispace(f2d), double),
                    res : region(ispace(f2d), double),
