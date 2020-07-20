@@ -59,7 +59,7 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool, use_double : bo
       var idx_a : int[2] = array(p.i, p.j) 
       var idx_b : int[2] = array(p.i, k)
       var idx_c : int[2] = array(k, p.j)
-      dgemm(true, true, idx_a, idx_b, idx_c, matrix_size, block_size, 1.0, 1.0,
+      dgemm(false, false, idx_a, idx_b, idx_c, matrix_size, block_size, 1.0, 1.0,
             pA[f2d { i = p.i, j = p.j }],
             pB[f2d { i = p.i, j = k }],
             pC[f2d { i = k, j = p.j }])

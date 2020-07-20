@@ -63,6 +63,17 @@ do
   end
 end
 
+terra find_ik(ik : int[2], z : int, n : int)
+  var q = z / (n+1)
+  if (z % (n + 1)) <= q then 
+    ik[0] = q
+    ik[1] = z % (n + 1)
+  else 
+    ik[0] = n - q 
+    ik[1] = (q + 1) * (n + 1) - z - 1
+  end
+end
+
 function raw_ptr_factory(ty)
   local struct raw_ptr
   {
@@ -126,6 +137,7 @@ terra dpotrf_terra(j : int, matrix_size : int, block_size : int, val_A : double,
   var rawA = get_raw_ptr(j, j, matrix_size, block_size, pr, fld)
   regentlib.assert(cmath.fabs(val_A - rawA.ptr[0]) == 0, "error reading matrix A in potrf!")
   blas.dpotrf_(uplo, block_size_, rawA.ptr, &(rawA.offset), info)
+  regentlib.assert(info[0] == 0, "matrix not spd in potrf!")
 end
 
 task dpotrf(j : int, matrix_size : int, block_size : int, rA : region(ispace(f2d), double))
@@ -214,10 +226,10 @@ terra dgemm_terra(transa : bool, transb : bool, idx_a : int[2], idx_b : int[2], 
                   fldC : c.legion_field_id_t)
   var transa_ : rawstring
   var transb_ : rawstring
-  if transa then transa_='N'
-  else transa_= 'T' end
-  if transb then transb_='N'
-  else transb_ = 'T' end
+  if transa then transa_='T'
+  else transa_= 'N' end
+  if transb then transb_='T'
+  else transb_ = 'N' end
   var matrix_size_ : int[1], block_size_ : int[1]
   matrix_size_[0], block_size_[0] = matrix_size, block_size
   var alpha_ : double[1] = array(alpha)

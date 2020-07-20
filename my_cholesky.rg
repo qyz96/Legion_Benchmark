@@ -78,7 +78,7 @@ task cholesky(matrix_size : int, num_blocks : int, verify : bool, use_double : b
         var idx_Bki : int[2] = array(k,i)
         var idx_Bkj : int[2] = array(k,j)
         var idx_Bij : int[2] = array(i,j)
-        dgemm(true, false, idx_Bki, idx_Bkj, idx_Bij, matrix_size, block_size, -1.0, 1.0, pB[f2d { i = k, j = i }], pB[f2d { i = k, j = j }], pB[f2d { i = i, j = j }])       
+        dgemm(false, true, idx_Bki, idx_Bkj, idx_Bij, matrix_size, block_size, -1.0, 1.0, pB[f2d { i = k, j = i }], pB[f2d { i = k, j = j }], pB[f2d { i = i, j = j }])       
       end
     end
   end
