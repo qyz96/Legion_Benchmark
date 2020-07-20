@@ -29,11 +29,11 @@ local struct __f2d { i : int, j : int }
 local f2d = regentlib.index_type(__f2d, "f2d")
 common.f2d = f2d
 
-task make_random_matrix(rA : region(ispace(f2d), double), use_double : bool)
+task make_random_matrix(matrix_size : int, rA : region(ispace(f2d), double), use_double : bool)
 where reads writes(rA)
 do
   for p in rA.ispace do
-    if use_double then rA[p] = [double](drand48())
+    if use_double then rA[p] = drand48()/[double](matrix_size)
     else rA[p] = [int](10.0*drand48()) end
   end
 end
@@ -78,6 +78,7 @@ end
 
 terra dgemm_terra(i : int, j : int, k : int,
                   matrix_size : int, block_size : int,
+                  alpha : double, beta :double,
                   val_A : double, val_B: double, val_C : double,
                   prA : c.legion_physical_region_t,
                   fldA : c.legion_field_id_t,
@@ -90,8 +91,8 @@ terra dgemm_terra(i : int, j : int, k : int,
   var transb : rawstring = 'N'
   var matrix_size_ : int[1], block_size_ : int[1]
   matrix_size_[0], block_size_[0] = matrix_size, block_size
-  var alpha : double[1] = array(1.0)
-  var beta : double[1] = array(1.0)
+  var alpha_ : double[1] = array(alpha)
+  var beta_ : double[1] = array(beta)
 
   var rawA = get_raw_ptr(i, j, matrix_size, block_size, prA, fldA)
   var rawB = get_raw_ptr(i, k, matrix_size, block_size, prB, fldB)
@@ -101,19 +102,20 @@ terra dgemm_terra(i : int, j : int, k : int,
   regentlib.assert(cmath.fabs(val_B - rawB.ptr[0]) == 0, "error reading matrix B!")
   regentlib.assert(cmath.fabs(val_C - rawC.ptr[0]) == 0, "error reading matrix C!")
   blas.dgemm_(transa, transb, block_size_, block_size_, block_size_,
-              alpha, rawB.ptr, &(rawB.offset),
+              alpha_, rawB.ptr, &(rawB.offset),
               rawC.ptr, &(rawC.offset),
-              beta, rawA.ptr, &(rawA.offset))
+              beta_, rawA.ptr, &(rawA.offset))
 
 end
 
 task dgemm(i : int, j : int, k : int, matrix_size : int, block_size : int,
+           alpha : double, beta : double,
            rA : region(ispace(f2d), double),
            rB : region(ispace(f2d), double),
            rC : region(ispace(f2d), double))
 where reads writes(rA), reads(rB, rC)
 do
-  dgemm_terra(i, j, k, matrix_size, block_size,rA[ f2d{ i = i * block_size, j = j * block_size }], rB[ f2d{ i = i * block_size, j = k * block_size }], rC[ f2d{ i = k * block_size, j = j * block_size }], __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
+  dgemm_terra(i, j, k, matrix_size, block_size, alpha, beta, rA[ f2d{ i = i * block_size, j = j * block_size }], rB[ f2d{ i = i * block_size, j = k * block_size }], rC[ f2d{ i = k * block_size, j = j * block_size }], __physical(rA)[0], __fields(rA)[0],__physical(rB)[0], __fields(rB)[0],__physical(rC)[0], __fields(rC)[0])
 end
 
 task verify_result(matrix_size : int,
@@ -124,13 +126,13 @@ where reads(org, res)
 do
   c.printf("verifying results...\n")
   var max_error : double
-  if use_double then max_error = 1e-16
+  if use_double then max_error = 1e-14
   else max_error=0 end
   for i = 0, matrix_size do
     for j = 0, matrix_size do
       var v = res[f2d { i = i, j = j }]
       var sum = org[f2d{i=i,j=j}]
-      if (cmath.fabs(sum - v)) / sum > max_error then
+      if (cmath.fabs(sum - v)) > max_error then
         c.printf("error %e at (%d, %d) : %.3f, %.3f\n", cmath.fabs(sum-v), i, j, sum, v)
       end
     end

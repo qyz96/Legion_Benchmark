@@ -78,8 +78,8 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool, use_double : bo
   for p in cs do
     make_zero_matrix(pA[p])       
     make_zero_matrix(pD[p]) 
-    make_random_matrix(pB[p], use_double)
-    make_random_matrix(pC[p], use_double)
+    make_random_matrix(matrix_size, pB[p], use_double)
+    make_random_matrix(matrix_size, pC[p], use_double)
   end
   __fence(__execution, __block)
   var ts_start = c.legion_get_current_time_in_micros()
@@ -87,7 +87,7 @@ task my_gemm(matrix_size : int, num_blocks : int, verify : bool, use_double : bo
   for k = 0, num_blocks do
     __demand(__index_launch)
     for p in cs do
-      dgemm(p.i, p.j, k, matrix_size, block_size,
+      dgemm(p.i, p.j, k, matrix_size, block_size, 1.0, 1.0,
             pA[f2d { i = p.i, j = p.j }],
             pB[f2d { i = p.i, j = k }],
             pC[f2d { i = k, j = p.j }])
